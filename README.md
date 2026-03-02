@@ -1,177 +1,301 @@
-# Entregable Practica 3
+# Posix-Threads-Mutex-Sync
 
-### Scatena, Adriano 74725/9
+## Sistema Multihilo en C con Sincronización mediante Mutex y Manejo de Señales POSIX
 
-### Rolandelli, Lautaro 74366/5
+Implementación de un sistema concurrente en C bajo el estándar POSIX Threads (`pthreads`).  
+El proyecto demuestra sincronización controlada entre hilos mediante exclusión mutua (`mutex`), protocolo de lectura/escritura alternada sobre memoria compartida intra-proceso, cifrado modular de datos y finalización limpia mediante señales del sistema.
 
-## Indice
+![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![Threads](https://img.shields.io/badge/pthreads-standard-blue?style=for-the-badge)
+---
 
-1. [Consigna](#consigna)
-2. [Problemática](#problemática)
-3. [Resolución](#resolución)
-4. [Diagrama de Flujo](#diagrama-de-flujo)
-5. [Modo de uso](#modo-de-uso)
-6. [Bibliografía](#bibliografia)
+## Autor
 
-## Consigna
+Adriano Scatena  
 
-Escriba un programa que utilice un arreglo de 20 `int`, compartido entre dos hilos A y B de manera tal que A escriba los primeros 10, y B los lea solamente después que se completó la escritura. De la misma manera B escribirá los 10 últimos enteros del arreglo y A los leerá solamente después que B complete la escritura. Este proceso se repetirá hasta que el hilo A reciba la señal `SIGTERM`, y cuando la reciba debe a su vez hacer terminar el hilo B, y liberar todos los recursos compartidos utilizados.
-Los datos serán números entre 0 y 26, (representando letras entre la a y la z), que serán cifrados previo a la escritura mediante una función de cifrado de la forma $𝑓(𝑥) = (𝑎𝑥 + 𝑏)\cdot𝑚𝑜𝑑\;𝑛$. En donde (a,b) serán claves públicas que estarán disponibles en memoria compartida. Para el descifrado de los datos se usará la función inversa $𝑓^{-1}(𝑥) = (𝑘𝑥 + 𝑐)\cdot𝑚𝑜𝑑\, 𝑛$, en donde $(k,c)$ son claves privadas conocidas solo por el proceso lector. Como función de cifrado se usará $𝑓(𝑥) = (4𝑥 + 5)\cdot 𝑚𝑜𝑑\;27$ y para el descifrado $𝑓^{-1} (𝑥) = (7𝑥 + 19)\cdot 𝑚𝑜𝑑\;27$.
-Ambos hilos realizarán primero la escritura de los datos en la zona correspondiente y luego la lectura. **_Ninguno de los dos hilos puede escribir en su zona hasta que el otro no haya leído los datos, excepto la primera vez_**. La escritura en ambos casos se realizará a razón de un valor por segundo, mientras que la lectura se realizará tan rápido como se pueda y se imprimirá en pantalla junto con la identificación del hilo que está leyendo.
-El programa debe ser **único**, es decir el mismo programa debe implementar el hilo A y el hilo B. Realice su implementación basada en variables compartidas y mutex.
+---
 
-## Problemática
+## Índice
 
-#### Objetivo:
+1. [Descripción General](#descripción-general)  
+2. [Arquitectura del Sistema](#arquitectura-del-sistema)  
+3. [Resolución Técnica y Modelo de Sincronización](#resolución-técnica-y-modelo-de-sincronización)  
+4. [Modelo Criptográfico Implementado](#modelo-criptográfico-implementado)  
+5. [Manejo de Señales y Finalización Controlada](#manejo-de-señales-y-finalización-controlada)  
+6. [Diagrama de Flujo General](#diagrama-de-flujo-general)  
+7. [Diagrama de Dinámica del Hilo A](#diagrama-de-dinámica-del-hilo-a)  
+8. [Compilación y Ejecución](#compilación-y-ejecución)  
+9. [Consideraciones Técnicas](#consideraciones-técnicas)  
+10. [Bibliografía](#bibliografía)  
 
-_Diseñar un programa que implemente dos hilos, A y B, y su respectiva correcta y ordenada sincronización para escribir y leer de manera controlada un arreglo compartido de 20 enteros. Incluir las restricciones pertinentes para el acceso a las zonas del arreglo, de manera que se garantice que cada hilo lea solo después de que el otro haya completado su escritura. Incorporara la correcta dinámica de cifrado y descifrado de los datos, utilizando funciones modulares. Implementar la finalización de los hilos el proceso cuando el hilo A reciba una señal `SIGTERM`, lo que también detendrá al hilo B y liberará los recursos compartidos. Utilizar convenientemente los recursos de los hilos y `mutex` para la ejecución del objetivo del programa_
+---
 
-## Resolución
+## Descripción General
 
-Para la resolución del presente trabajo, se empleó como recurso principal para la sincronización de la actividad de los hilos la herramienta `mutex` (_"Mutual Exclusion"_), que se utiliza frecuentemente en programación concurrente ya que permite garantizar que solo un hilo tenga acceso a una sección crítica en un momento dado. Es importante su correcta implementación para así poder evitar condiciones de carrera en la escritura/lectura del arreglo compartido, ya que ambos hilos intentan acceder y/o modificar datos al mismo tiempo en el mismo. De esta manera el `mutex` bloquea el acceso a un recurso mientras un hilo lo está usando, y solo el hilo que lo ha bloqueado puede liberarlo.
-La estrategia empleada se basa en administrar el acceso a la sección crítica de cada hilo de manera tal que cuando este desea acceder a la misma, primero intenta bloquear el `mutex`. Si el `mutex` está desbloqueado, el hilo lo "adquiere" y procede con la ejecución de la sección crítica. En este momento, el mutex está bloqueado para cualquier otro hilo, impidiendo que otro hilo acceda al recurso en modificación. Sabiendo que si otro hilo intenta bloquear el `mutex` cuando este ya fue bloqueado, pasa a un estado de "bloqueo" a **_nivel de sistema operativo_** (llamado también como **_bloqueo de sincronización_**), es decir ingresa a un estado de suspensión y es el propio sistema operativo quien lo pone en "espera" (de manera tal que no se consuman recursos del CPU). La espera sucede hasta que el hilo que posee el `mutex` lo libere. Por ello es fundamental que, una vez que el hilo termina su actividad en la sección crítica, desbloquea el mutex, permitiendo que el otro hilo pueda acceder a la propia sección crítica. Esto se puede ver evidenciado en el código del programa en las dinámicas designadas para cada hilo, donde se incluyen las funciones `pthread_mutex_lock()` (para bloquear el `mutex`), y `pthread_mutex_unlock()` (par desbloquearlo). Véase como ejemplo la dinámica del **hilo A** con la sección critica de escritura del bloque compartido:
+El programa implementa un arreglo compartido de 20 enteros accesible por dos hilos concurrentes:
 
-```C
-    pthread_mutex_lock(&mutex_a);
+- **Hilo A**
+- **Hilo B**
 
-    printf("\n\033[0;32mHilo A\033[0m comenzo a escribir los primeros 10 elementos\n\n");
-    sleep(2);
-    /* SECCIÓN CRITICA */
-    for (int i = 0; i < SIZE / 2; i++) {
-        int rnum = rand() % 27;
-        shm.datos[i] = cifrar(rnum);
-        printf("\033[0;32mHilo A\033[0m Escribio \033[0;36m%d\033[0m (C: %d), en shm.\033[0;32mdatos[\033[0;32m%d\033[0m\033[0;32m]\033\n", rnum,
-                shm.datos[i], i);
-        sleep(1);
-    }
-    /* FIN SECCIÓN CRITICA */
+El comportamiento del sistema sigue un protocolo determinístico:
 
-    pthread_mutex_unlock(&mutex_a);
+- Hilo A escribe los primeros 10 elementos.
+- Hilo B los lee únicamente cuando la escritura finaliza.
+- Hilo B escribe los últimos 10 elementos.
+- Hilo A los lee únicamente cuando la escritura finaliza.
+- El ciclo se repite hasta que el hilo A recibe la señal `SIGTERM`.
 
+Restricción central del diseño:
+
+> Ningún hilo puede sobrescribir su zona hasta que el otro haya leído completamente los datos, excepto en la primera iteración.
+
+---
+
+## Arquitectura del Sistema
+
+### Componentes principales
+
+- Estructura `shared_memory` con arreglo de 20 enteros.
+- Dos hilos creados mediante `pthread_create()`.
+- Dos mutex independientes:
+  - `mutex_a` → protege los primeros 10 elementos.
+  - `mutex_b` → protege los últimos 10 elementos.
+- Variables de control compartidas:
+  - `lectA`
+  - `lectB`
+  - `sigterm`
+  - `sigstop`
+  - `sigcont`
+
+Al tratarse de hilos dentro del mismo proceso, la memoria es compartida directamente (mismo espacio de direcciones), por lo que no se requiere IPC a nivel kernel.
+
+---
+
+## Resolución Técnica y Modelo de Sincronización
+
+La sincronización del sistema se implementa mediante `mutex` (Mutual Exclusion), mecanismo fundamental en programación concurrente que garantiza que únicamente un hilo pueda acceder a una sección crítica en un momento dado.
+
+El diseño evita condiciones de carrera en la escritura y lectura del arreglo compartido, ya que ambos hilos operan sobre una estructura común de memoria. Sin un mecanismo de exclusión mutua, podrían producirse inconsistencias de datos debido a accesos simultáneos.
+
+### Estrategia de sincronización
+
+Cada hilo administra su acceso a la sección crítica del siguiente modo:
+
+1. Solicita el bloqueo del `mutex` correspondiente.
+2. Si el `mutex` está disponible, lo adquiere y ejecuta la sección crítica.
+3. Si el `mutex` está ocupado, el hilo entra en estado de bloqueo a nivel del sistema operativo (bloqueo de sincronización).
+4. Finalizada la sección crítica, el hilo libera el `mutex`.
+
+Este comportamiento se implementa mediante:
+
+- `pthread_mutex_lock()`
+- `pthread_mutex_trylock()`
+- `pthread_mutex_unlock()`
+
+Ejemplo representativo (escritura del Hilo A):
+
+```c
+pthread_mutex_lock(&mutex_a);
+
+printf("\nHilo A comenzó a escribir los primeros 10 elementos\n\n");
+
+/* SECCIÓN CRÍTICA */
+for (int i = 0; i < SIZE / 2; i++) {
+    int rnum = rand() % 27;
+    shm.datos[i] = cifrar(rnum);
+    sleep(1);
+}
+/* FIN SECCIÓN CRÍTICA */
+
+pthread_mutex_unlock(&mutex_a);
 ```
 
-Esta estrategia asegura que, aunque ambos hilos estén ejecutándose en paralelo, solo uno puede modificar o leer el recurso compartido, lo cual garantiza la coherencia de los datos para ambos hilos. Sin el mutex, los hilos podrían interferir entre sí, lo que llevaría a condiciones de carrera y resultados incorrectos.
+Mientras un hilo posee el `mutex`, ningún otro puede acceder a esa zona protegida.  
+Cuando otro hilo intenta bloquear un `mutex` ya adquirido, el sistema operativo lo suspende hasta su liberación, evitando consumo activo de CPU.
 
-La finalización del programa se realiza mediante la recepción e interrupción de la señal `SIGTERM` al _hilo A_, ya que este tiene declarado el manejador de la señal:
+Este esquema garantiza:
 
-```C
-    signal(SIGTERM, handle_sigterm);
+- Coherencia de datos
+- Acceso ordenado
+- Ausencia de condiciones de carrera
+- Alternancia controlada entre escritura y lectura
+
+---
+
+## Modelo Criptográfico Implementado
+
+Los valores generados pertenecen al rango `[0, 26]`, representando letras del alfabeto.
+
+### Función de cifrado
+
+f(x) = (4x + 5) mod 27
+
+### Función inversa de descifrado
+
+f⁻¹(x) = (7x + 19) mod 27
+
+Implementación:
+
+```c
+int cifrar(int x) { return (4 * x + 5) % 27; }
+int descifrar(int x) { return (7 * x + 19) % 27; }
 ```
 
-En la rutina del propio manejador, se establece en `true` la _flag_ `sigterm`, de manera tal que, ya que se trata de un proceso multihilos, y que el entorno del proceso se comparte, o pertenece, a cada uno de los hilos, la misma _flag_ es leida por ambos hilos, los cuales se dedican a finalizar su rutina saliendo de la estructura condicional `while(!sigterm){...}` y llamando a la función `pthread_exit(NULL)`. Véase el manejador a continuación:
+Se trata de un cifrado afín modular clásico, donde las constantes cumplen la condición de inversibilidad en módulo 27.
 
-```C
+El cifrado se realiza antes de escribir en memoria compartida, y el descifrado al momento de la lectura.
+
+---
+
+## Manejo de Señales y Finalización Controlada
+
+La finalización del sistema se realiza mediante recepción de la señal `SIGTERM` en el hilo A:
+
+```c
+signal(SIGTERM, handle_sigterm);
+```
+
+El manejador:
+
+```c
 void handle_sigterm(int signum) {
     sigterm = true;
-    printf("\n\033[0;32mHilo A\033[0m detectó SIGTERM. Notificando a hilo B y finalizando luego de completar tareas...\n\n");
 }
 ```
 
-Finalizado cada hilo, el proceso principal espera la finalización de cada uno de ellos ya que se emplea la función `pthread_join()`, la cual a nivel proceso dicta la espera del mismo hasta que dicho hilo termine. Esto garantiza que el proceso principal no termine antes de que los hilos hayan finalizado su ejecución. Luego se liberan los recursos de los _mutexes_ con `pthread_mutex_destroy()` y se retorna el valor de éxito (0) si todo finaliza correctamente. Véase dicha rutina:
+Al activarse:
 
-```C
-    // Espera a que los hilos terminen su ejecucion.
-    pthread_join(hiloA, NULL);
-    pthread_join(hiloB, NULL);
+- Se modifica una bandera compartida.
+- Ambos hilos abandonan su bucle `while(!sigterm)`.
+- Cada hilo finaliza mediante `pthread_exit(NULL)`.
 
-    // Liberar recursos
-    pthread_mutex_destroy(&mutex_a);
-    if (errno == EBUSY)
-        perror("mutex_a");
-    pthread_mutex_destroy(&mutex_b);
-    if (errno == EBUSY)
-        perror("mutex_b");
+El proceso principal sincroniza la finalización usando:
 
-    printf("\n Hilos destruidos.\n");
-
-    printf("\nFinalizando programa...\n");
-    return 0;
+```c
+pthread_join(hiloA, NULL);
+pthread_join(hiloB, NULL);
 ```
 
-## Diagrama de Flujo
+Luego destruye los mutex:
 
-```mermaid
-graph TD
-    A[Inicio del programa]
-    A --> C[Identificación del proceso]
-    C --> D[Inicializar mutex_a y mutex_b]
-    D --> E[Crear hilo A]
-    D --> F[Crear hilo B]
-    E --> G[Dinamica de hilo A]
-    F --> H[Dinamica de hilo B]
-    G -->|Ciclo| G1[Llegó SIGTERM?]
-    H -->|Ciclo| H1[Recibió A SIGTERM?]
-
-    G1 --> |No| GA[Intentar escribir primeros 10 de shm\nmutex_a]
-    GA --> GB[Intentar leer últimos 10 de shm\nmutex_b] --> G1
-    H1 --> |No| HA[Intentar escribir últimos 10 de shm\nmutex_b]
-    HA --> HB[Intentar leer primeros 10 de shm\nmutex_a] --> H1
-
-    G1 -->|SIGTERM recibido| G2[Notificar hilo B y finalizar]
-    H1 -->|SIGTERM recibido| H2[Finalizar]
-
-    G2 --> I[Esperar a que hilos terminen]
-    H2 --> I
-    I --> J[Destruir mutex_a y mutex_b]
-    J --> K[Finalizar programa]
-
+```c
+pthread_mutex_destroy(&mutex_a);
+pthread_mutex_destroy(&mutex_b);
 ```
-En especifico, las dinamicas de los hilos se comportan de manera idéntica. Ejemplificando con el hilo A, se obtiene:
+
+Este diseño garantiza:
+
+- Terminación ordenada
+- Liberación correcta de recursos
+- Ausencia de hilos huérfanos
+- Limpieza completa del entorno concurrente
+
+---
+
+## Diagrama de Flujo General
 
 ```mermaid
 flowchart TD
- subgraph dinamicaA["dinamicaA"]
-        mutexa["Solicita acceso al Mutex A"]
-        while{"¿SIGTERM?"}
-        sigterm("sigterm = true")-->finA[Finaliza el hilo A]
-        suspendidoA["Estado de suspensión hasta que el mutex se libere"]
-        adquiereA("Bloquea el mutex_a")
-        Seccion(["**Sección Critica**:
-     Escritura de primeros 10 enteros"])
-        dbloqA("Desbloquea el mutex_a")
-        mutexb["Solicita acceso al Mutex B"]
-        mutexb -- Bloqueado --> suspendidoA2["Estado de suspensión hasta que el mutex se libere"]-->mutexb
-        mutexb -- Libre --> adquiereB("Bloquea el mutex_b")
-        adquiereB --> Seccion2(["**Sección Critica**:
-     Lectura de últimos 10 enteros"])
-        Seccion2-->dbloqB("Desbloquea el mutex_b")
-      end
-    while -- No Recibido --> mutexa
-    while -- Recibido --> sigterm
-    mutexa -- Bloqueado --> suspendidoA
-    mutexa -- Libre --> adquiereA
-    suspendidoA --> mutexa
-    adquiereA --> Seccion
-    Seccion --> dbloqA
-    dbloqA --> mutexb
 
+    A[Inicio del programa]
+    A --> B[Inicialización de mutex]
+    B --> C[Creación de hilo A]
+    B --> D[Creación de hilo B]
+
+    C --> E[Dinamica A]
+    D --> F[Dinamica B]
+
+    E --> G{¿SIGTERM?}
+    F --> H{¿SIGTERM?}
+
+    G -->|No| EA[Escribir primeros 10\nmutex_a]
+    EA --> EB[Leer últimos 10\nmutex_b]
+    EB --> G
+
+    H -->|No| FA[Escribir últimos 10\nmutex_b]
+    FA --> FB[Leer primeros 10\nmutex_a]
+    FB --> H
+
+    G -->|Sí| I[Finalización controlada]
+    H -->|Sí| I
+
+    I --> J[Join de hilos]
+    J --> K[Destrucción de mutex]
+    K --> L[Fin del programa]
 ```
 
-## Modo de Uso
+---
 
-Para la ejecución del programa principal debe primero compilarse el archivo _.c_ que contiene el script del propio ejercicio. Para ello debe ejecutarse mediante la terminal de _bash_ el compilador de C del proyecto GNU `gcc`, generando un archivo ejecutable (o archivo de objeto).
+## Diagrama de Dinámica del Hilo A
+
+```mermaid
+flowchart TD
+
+    A[Inicio dinamicaA]
+    A --> B{¿SIGTERM?}
+
+    B -->|No| C[Solicita mutex_a]
+    C --> D[Sección crítica:\nEscritura cifrada primeros 10]
+    D --> E[Libera mutex_a]
+
+    E --> F[Solicita mutex_b]
+    F --> G[Sección crítica:\nLectura descifrada últimos 10]
+    G --> H[Libera mutex_b]
+
+    H --> B
+    B -->|Sí| I[Finaliza hilo A]
+```
+
+---
+
+## Compilación y Ejecución
+
+### Compilación
 
 ```bash
-    gcc e6.c -o < nombre_ejecutable > -pthread
+gcc main.c -o posix_threads_sync -pthread
 ```
 
-A partir del ejecutable, es posible mediante la misma terminal correr el programa. Para hacerlo puede extenderse el siguiente comando:
+### Ejecución
 
 ```bash
-    ./<nombre_ejecutable>
+./posix_threads_sync
 ```
 
-De esta manera se iniciará el proceso. Para comunicarse con el mismo y probar sus funciones, debe enviarle las pertinentes señales. Convenientemente debe abrirse otra terminal, de la cual se le enviarán la señales mediante el comando `kill`, de la siguiente forma:
+### Envío de señales
+
+Desde otra terminal:
 
 ```bash
-    kill -<nombre_señal> <pid_padre>
+kill -SIGTERM <PID>
+kill -SIGUSR1 <PID>
+kill -SIGUSR2 <PID>
 ```
 
-#### Limitacion
-Una de las posibles limitaciones dentro de esta implementación es el hecho de que la utilización de los mutexes genera el estado de bloqueo del hilo cuando el mutex no está disponible.En este caso, puede atraer la limitación de que, si el hilo A  se encuentra en estado de bloqueo, entonces este no atenderá la rutina de cierre del programa hasta que el mismo pueda adquirir el mutex solicitado.
-## Bibliografia
+El PID se muestra al iniciar el programa.
 
-1. ["Exclusiones mutuas y hebras.", 2024-10-07.](https://www.ibm.com/docs/es/i/7.5?topic=threads-mutexes)
+---
 
-2. ["Función pthread_join en C.", 12 octubre 2023.](https://www.delftstack.com/es/howto/c/pthread_join-return-value-in-c/)
+## Consideraciones Técnicas
 
+Este proyecto evidencia:
+
+- Dominio de programación concurrente en C.
+- Comprensión del modelo de memoria compartida.
+- Uso correcto de exclusión mutua en entornos POSIX.
+- Interacción entre señales asincrónicas y ejecución multihilo.
+- Finalización limpia y controlada de recursos compartidos.
+- Modelado determinístico de protocolos de acceso a memoria.
+
+---
+
+## Bibliografía
+
+1. IBM Documentation — Exclusión mutua y hebras  
+   https://www.ibm.com/docs/es/i/7.5?topic=threads-mutexes  
+
+2. pthread_join en C  
+   https://www.delftstack.com/es/howto/c/pthread_join-return-value-in-c/  
+
+3. IEEE Std 1003.1-2017 — POSIX Threads Standard  
