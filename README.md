@@ -5,9 +5,10 @@
 Implementación de un sistema concurrente en C bajo el estándar POSIX Threads (`pthreads`).  
 El proyecto demuestra sincronización controlada entre hilos mediante exclusión mutua (`mutex`), protocolo de lectura/escritura alternada sobre memoria compartida intra-proceso, cifrado modular de datos y finalización limpia mediante señales del sistema.
 
-![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
-![Threads](https://img.shields.io/badge/pthreads-standard-blue?style=for-the-badge)
+Archivo principal del proyecto:
+
+- `thread_sync_manager.c`
+
 ---
 
 ## Autor
@@ -254,7 +255,7 @@ flowchart TD
 ### Compilación
 
 ```bash
-gcc main.c -o posix_threads_sync -pthread
+gcc thread_sync_manager.c -o posix_threads_sync -pthread
 ```
 
 ### Ejecución
